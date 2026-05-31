@@ -24,8 +24,6 @@
   .arc-reactor svg { width: 100%; height: 100%; animation: rotate 8s linear infinite; }
   .arc-reactor .inner { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 35px; height: 35px; background: radial-gradient(circle, #ffffff, var(--primary), transparent); border-radius: 50%; box-shadow: 0 0 20px var(--primary); }
   @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-  .speaking .arc-reactor .inner { background: radial-gradient(circle, #ffffff, #00ff88, transparent); box-shadow: 0 0 25px #00ff88; }
-  .listening .arc-reactor .inner { background: radial-gradient(circle, #ffffff, var(--accent), transparent); box-shadow: 0 0 25px var(--accent); }
   .chat-area { width: 100%; flex: 1; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(0,212,255,0.1); background: rgba(0,0,0,0.2); border-radius: 6px; }
   .messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 12px; }
   .message { max-width: 85%; font-size: 14px; padding: 10px 14px; border-radius: 4px; line-height: 1.4; }
@@ -54,8 +52,8 @@
 <header>
   <div class="logo">J.A.R.V.I.S.</div>
   <div class="status-bar">
-    <div id="sysState"><span class="status-dot"></span> CEKIRDEK AKTIF</div>
-    <div id="micStatus">TETIKLEYICI: "JARVIS"</div>
+    <div id="sysState"><span class="status-dot"></span> ÇEKİRDEK AKTİF</div>
+    <div id="micStatus">MİKROFON: AKTİF</div>
   </div>
 </header>
 
@@ -72,7 +70,7 @@
 
   <div class="chat-area">
     <div class="messages" id="messages">
-      <div class="message jarvis">Mobil sistem entegrasyonu tamamlandı Efendim. "Jarvis" diyerek komut verebilirsiniz.</div>
+      <div class="message jarvis">Sesli ve mobil sistem entegrasyonu tamamlandı Efendim. Dinleme modu aktif.</div>
     </div>
     <div class="input-area">
       <textarea id="userInput" placeholder='Bir emir verin...' rows="1"></textarea>
@@ -86,60 +84,56 @@ let apiKey = '';
 let conversationHistory = [];
 let isWaitingForResponse = false;
 let recognition = null;
-let wakeWordDetected = false;
 
-const SYSTEM_PROMPT = `Sen J.A.R.V.I.S. asistanısın. Kullanıcıya her zaman "Efendim" diye hitap edersin. Yanıtların kısa, net ve asil bir tonda olmalıdır.`;
+const SYSTEM_PROMPT = `Sen J.A.R.V.I.S. asistanısın. Kullanıcıya "Efendim" diye hitap edersin. Kısa ve asil yanıtlar verirsin.`;
+
+// Android APK içinde dış linkleri güvenli tetikleme fonksiyonu
+function openAndroidLink(url) {
+  location.href = url;
+}
 
 function checkSystemCommands(text) {
   let lower = text.toLowerCase().trim();
   if (lower.includes('aç') || lower.includes('başlat')) {
-    if (lower.includes('youtube')) { window.open('https://www.youtube.com', '_blank'); return "YouTube açılıyor, Efendim."; }
-    if (lower.includes('google')) { window.open('https://www.google.com', '_blank'); return "Google açılıyor, Efendim."; }
-    if (lower.includes('spotify')) { window.open('https://open.spotify.com', '_blank'); return "Spotify başlatılıyor, Efendim."; }
+    if (lower.includes('youtube')) { openAndroidLink('https://www.youtube.com'); return "YouTube açılıyor, Efendim."; }
+    if (lower.includes('google')) { openAndroidLink('https://www.google.com'); return "Google açılıyor, Efendim."; }
+    if (lower.includes('spotify')) { openAndroidLink('https://open.spotify.com'); return "Spotify başlatılıyor, Efendim."; }
   }
   if (lower.includes('ara') && lower.includes('google')) {
     let query = text.replace(/google'da|google da|ara/gi, '').trim();
-    if(query.length > 0) { window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank'); return `"${query}" konusu araştırılıyor Efendim.`; }
+    if(query.length > 0) { openAndroidLink(`https://www.google.com/search?q=${encodeURIComponent(query)}`); return `"${query}" konusu araştırılıyor Efendim.`; }
   }
   return null;
 }
 
 function startVoiceRecognition() {
-  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    appendMessage('jarvis', 'Hata: Cihazınız ses tanımayı desteklemiyor.');
+    return;
+  }
+  
   recognition = new SpeechRecognition();
   recognition.continuous = true;
-  recognition.interimResults = true;
+  recognition.interimResults = false;
   recognition.lang = 'tr-TR';
 
   recognition.onresult = (event) => {
-    if (isWaitingForResponse || window.speechSynthesis.speaking) return;
-    let interimTranscript = ''; let finalTranscript = '';
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-      else interimTranscript += event.results[i][0].transcript;
+    if (isWaitingForResponse) return;
+    let resultText = event.results[event.results.length - 1][0].transcript.trim();
+    if (resultText.length > 1) {
+      sendMessage(resultText);
     }
-    let liveText = (finalTranscript || interimTranscript).trim();
-    let lowerText = liveText.toLowerCase();
+  };
 
-    if (lowerText.includes('jarvis') || lowerText.includes('çarvis') || lowerText.includes('servis')) {
-      if (!wakeWordDetected) {
-        wakeWordDetected = true;
-        document.getElementById('mainContainer').classList.add('listening');
-      }
-      let cleanText = liveText.replace(/jarvis|çarvis|servis/gi, '').trim();
-      if (cleanText.length > 0) document.getElementById('userInput').value = cleanText;
-      if (finalTranscript && cleanText.length > 0) {
-        wakeWordDetected = false;
-        sendMessage(cleanText);
-      }
-    }
+  recognition.onerror = (e) => {
+    console.log("Ses tanıma hatası:", e);
   };
 
   recognition.onend = () => {
-    document.getElementById('mainContainer').classList.remove('listening');
-    if (!isWaitingForResponse && !window.speechSynthesis.speaking) { try { recognition.start(); } catch(e){} }
+    if (!isWaitingForResponse) { try { recognition.start(); } catch(e){} }
   };
+
   try { recognition.start(); } catch(e){}
 }
 
@@ -154,7 +148,9 @@ function initJarvis() {
 
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('jarvis_mobile_key');
-  if (saved) document.getElementById('apiKeyInput').value = saved;
+  if (saved) {
+    document.getElementById('apiKeyInput').value = saved;
+  }
 });
 
 async function sendMessage(textFromVoice = null) {
@@ -163,24 +159,18 @@ async function sendMessage(textFromVoice = null) {
   const text = textFromVoice ? textFromVoice : input.value.trim();
   if (!text || !apiKey) return;
 
-  input.value = '';
+  if (!textFromVoice) input.value = '';
   appendMessage('user', text);
   
   let sysResp = checkSystemCommands(text);
   if (sysResp) {
     appendMessage('jarvis', sysResp);
-    if(recognition) try{ recognition.stop(); }catch(e){}
-    document.getElementById('mainContainer').classList.add('speaking');
-    speak(sysResp, () => {
-      document.getElementById('mainContainer').classList.remove('speaking');
-      startVoiceRecognition();
-    });
+    speak(sysResp, () => {});
     return;
   }
 
   isWaitingForResponse = true;
   conversationHistory.push({ role: 'user', content: text });
-  if(recognition) try{ recognition.stop(); }catch(e){}
 
   try {
     const res = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
@@ -194,14 +184,9 @@ async function sendMessage(textFromVoice = null) {
     appendMessage('jarvis', response);
     conversationHistory.push({ role: 'assistant', content: response });
     
-    document.getElementById('mainContainer').classList.add('speaking');
-    speak(response, () => {
-      document.getElementById('mainContainer').classList.remove('speaking');
-      startVoiceRecognition();
-    });
+    speak(response, () => {});
   } catch (err) {
     appendMessage('jarvis', 'Bağlantı hatası gerçekleşti.');
-    startVoiceRecognition();
   } finally {
     isWaitingForResponse = false;
   }
@@ -221,6 +206,7 @@ function speak(text, onEnd) {
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'tr-TR';
+  u.rate = 1.0;
   if (onEnd) u.onend = onEnd;
   window.speechSynthesis.speak(u);
 }
